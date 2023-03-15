@@ -19,7 +19,7 @@ This tutorial is meant to be a step-by-step guide for likelihood-based assignmen
 
 We will mainly use functions within the newly published **AssignR** package (see [Ma et al. 2020](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13426)). Our approach is similar to the overall workflow described in the linked paper, but with a few subtle changes. 
 
-For this tutorial we provide all of the necessary data. All other data will be generated within R, including the isotope data for the assigned individuals. These data could be generated to represent any species, but for the purpose of this tutorial, we have intended that these data are feather stable-hydrogen values (**\(\delta\)<sup>2</sup>H<sub>f</sub>**) from a population of [American Black Duck](https://www.allaboutbirds.org/guide/American_Black_Duck/overview) (see link for species description) in northeastern **North America**, collected during the Fall/Winter (Sept-Jan). Regardless of whether the data are real/simulated, we know that these feathers were grown on the breeding grounds and we can use these feathers to assign individuals to breeding/moult origin. For your own data, it is important to understand moult timing and life history of your species to know exactly where the tissues were grown. 
+For this tutorial we provide all of the necessary data. All other data will be generated within R, including the isotope data for the assigned individuals. These data could be generated to represent any species, but for the purpose of this tutorial, we have intended that these data are primary feather stable-hydrogen values (**\(\delta\)<sup>2</sup>H<sub>f</sub>**) from a population of [Sandhill Cranes](https://www.allaboutbirds.org/guide/Sandhill_Crane/overview) (see link for species description) in northeastern **North America**, collected during the Fall/Winter (Sept-Jan). Regardless of whether the data are real/simulated, we know that these feathers were grown on the breeding grounds and we can use these feathers to assign individuals to breeding/moult origin. For your own data, it is important to understand moult timing and life history of your species to know exactly where the tissues were grown. 
 
 ***
 
@@ -39,7 +39,6 @@ if (!require('RColorBrewer')) install.packages('RColorBrewer'); library('RColorB
 if (!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
 if (!require('plotly')) install.packages('plotly'); library('plotly')
 
-
 custom.palette <- colorRampPalette(brewer.pal(9, "YlGnBu")) # Color palette
 ```
 
@@ -48,22 +47,25 @@ custom.palette <- colorRampPalette(brewer.pal(9, "YlGnBu")) # Color palette
 
 # - Shapefiles
 
-Before we start working with isotopes, we should ensure that all the necessary polygons for the assignment are loaded. These polygons are: **North America** and a **breeding range** (from **Baldasarre et al. 2014**). The breeding range file has been provided in the accompanying .zip file, in the "Shapefiles" folder. For the North America polygon, we will use the **rnaturalearth** package to load a medium resolution map of the countries within North America.   
+Before we start working with isotopes, we should ensure that all the necessary polygons for the assignment are loaded. These polygons are: **North America** and a **breeding range**. For the North America polygon, we will use the **rnaturalearth** package to load a medium resolution map of the countries within North America. 
 
-After loading these files, we must check that they are all in the correct coordinate system (**CRS**). If you are unfamiliar with coordinate systems and projections in R, here is a quick [overview](https://www.nceas.ucsb.edu/sites/default/files/2020-04/OverviewCoordinateReferenceSystems.pdf). In short, most of the data that we are working with uses the **WGS84** coordinate system. This system uses **latitude** and **longitude** coordinates on the WGS84 reference ellipsoid. This is the coordinate system commonly used by organizations that provide GIS data for the entire globe or many countries. Coordinate systems can be directly referenced using an EPSG Geodetic Parameter Dataset code (e.g., EPSG:4326 = WGS84).
+Rather than provide a breeding range shapefile from something like BirdLife International or eBirds, which cannot be distributed, we will just use the geopolitical boundaries to approximate the breeding range. In your own analyses, you would use a breeding range shapefile. 
+
+To be sure - check that they are all in the correct coordinate system (**CRS**). If you are unfamiliar with coordinate systems and projections in R, here is a quick [overview](https://www.nceas.ucsb.edu/sites/default/files/2020-04/OverviewCoordinateReferenceSystems.pdf). In short, most of the isoscape data that we are working with uses the **WGS84** coordinate system. This system uses **latitude** and **longitude** coordinates on the WGS84 reference ellipsoid. This is the coordinate system commonly used by organizations that provide GIS data for the entire globe or many countries. Coordinate systems can be directly referenced using an EPSG Geodetic Parameter Dataset code (e.g., EPSG:4326 = WGS84).
 
 To ensure that all files are in the proper format, we will project/reproject them to be in the **EPSG 4326** coordinate system. When projecting these files, the code produces several warnings that can be ignored for our purposes. In short, these warnings tell us that the data we are attempting to project is missing CRS information in WKT format and must use the outdated proj4string format. 
 
 ```{r range}
-northamerica <- ne_countries(continent = "North America", scale = 50, returnclass = "sp")
-northamerica <- spTransform(northamerica, CRSobj = CRS(SRS_string = 'EPSG:4326'))
+northamerica <- ne_countries(continent = "North America", scale = 50, returnclass = "sf") %>%
+  st_transform(st_crs('EPSG:4326')) # Project to WGS84
 
 setwd("C:/Users/jacks/OneDrive - The University of Western Ontario/Western University - PhD/Workshops/OCTWS - 2023")
 
-breeding.range <- st_read("Shapefiles/ABDU_baldassarre_lowdens.shp") %>%
-  st_transform(st_crs(4326)) %>% 
-  ms_simplify(keep = 0.05) %>% # Topologically-aware geometry simplification (keeping 5% of points)
-  as('Spatial') # Convert to 'SpatialPolygonsDataFrame'
+breeding.range <- ne_states(country = c("Canada","United States of America"), returnclass = "sf") %>%
+  st_transform(st_crs('EPSG:4326')) %>% # Project to WGS84
+  filter(iso_a2 == "CA" | name %in% c("Michigan","New York","Wisconsin","Minnesota","Washington","Oregon","North Dakota",
+                                      "Vermont","New Hampshire","Alaska","Maine","Connecticut","Massachusetts")) %>%
+  as("Spatial") # Convert to 'SpatialPolygonsDataFrame'
 
 plot(breeding.range, col = brewer.pal(9, "YlGnBu")[5], border = NA)
 plot(northamerica, add = T)
@@ -75,12 +77,15 @@ If you are unfamiliar with spatial data in R, the two data types that we are wor
 
 # - Isoscape
 
-Next load in the **amount-weighted growing season \(\delta\)<sup>2</sup>H precipitation isoscape** (see [Bowen et al. 2005](https://link.springer.com/article/10.1007/s00442-004-1813-y) for methods), from the **AssignR** package. This surface provides two layers: a **mean** and **sd \(\delta\)<sup>2</sup>H values**. 
-
-This is the only isoscape available within the package at this time, although the WaterIsotopes website provides a [mean annual surface](https://wateriso.utah.edu/waterisotopes/pages/data_access/ArcGrids.html) and monthly precipitation surfaces, but these surfaces cannot be interfaces with this code because they do not have standard deviation layers.
+Next we will download an **amount-weighted growing season \(\delta\)<sup>2</sup>H precipitation isoscape** (see [Bowen et al. 2005](https://link.springer.com/article/10.1007/s00442-004-1813-y) for methods), from the **AssignR** package. This surface provides two layers: a **mean** and **sd \(\delta\)<sup>2</sup>H values**. 
 
 ```{r isoscape}
-data("d2h_lrNA")
+gsd <- getIsoscapes(isoType = "GlobalPrecipGS", timeout = 1200)
+gsd <-asdasd 
+  
+  
+  test <- st_read("/vsicurl/https://github.com/JacksonKusack/Assignment-Workshop/blob/main/MonarchRange_Final.shp")
+
 d2h_lrNA <- projectRaster(d2h_lrNA, crs = CRS(SRS_string = 'EPSG:4326'))
 ```
 
