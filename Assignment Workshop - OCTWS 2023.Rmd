@@ -73,6 +73,8 @@ plot(northamerica, add = T)
 
 If you are unfamiliar with spatial data in R, the two data types that we are working with in this document are (1) **polygons** (i.e., sequence of two-dimensional points forming a closed non-self-intersecting shape) and (2) **rasters** (i.e., grid of cells storing values, all of which are the same size). Polygonal data in R has two commonly used formats, **sp** and **sf**. It is recommended to use 'sf' over 'sp', as 'sf' is the newer version and the community is transitioning to being completely 'sf' in the future. Unfortunately many of the functions necessary to run this code rely on the package **raster** which is currently incompatible with 'sf', for the time being at least. So, we will load/index/transform the data in 'sf' format and then convert to 'sp' using the **as(x, "Spatial")** function. 
 
+
+
 ***
 
 # - Isoscape
@@ -83,8 +85,13 @@ Next we will download an **amount-weighted growing season \(\delta\)<sup>2</sup>
 gsd <- getIsoscapes(isoType = "GlobalPrecipGS", timeout = 1200)
 gsd <-asdasd 
   
-  
-  test <- st_read("/vsicurl/https://github.com/JacksonKusack/Assignment-Workshop/blob/main/MonarchRange_Final.shp")
+path <- ebirdst::ebirdst_download(species = "amewoo")
+
+ebirdst::ebirdst_runs
+
+test <- st_read("/vsicurl/https://github.com/JacksonKusack/Assignment-Workshop/raw/main/MonarchRange_Final.shp") # Load a shapefile from GitHub
+
+plot(test)
 
 d2h_lrNA <- projectRaster(d2h_lrNA, crs = CRS(SRS_string = 'EPSG:4326'))
 ```
