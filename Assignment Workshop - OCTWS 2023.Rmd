@@ -1,13 +1,13 @@
 ---
-title: "Likelihood-based Assignment Tutorial"
+title: "ASsignment Workshop - OCTWS 2023"
 author: "Jackson Kusack"
-date: "06-10-2020"
+date: Sys.Date()
 output: 
-  #prettydoc::html_pretty:
-  html_document:
-    #theme: leonids
-    #highlight: github
-    number_sections: TRUE
+  prettydoc::html_pretty:
+  #html_document:
+    theme: leonids
+    highlight: github
+    #number_sections: TRUE
     code_folding: hide
 ---
 
@@ -49,26 +49,24 @@ custom.palette <- colorRampPalette(brewer.pal(9, "YlGnBu")) # Color palette
 
 Before we start working with isotopes, we should ensure that all the necessary polygons for the assignment are loaded. These polygons are: **North America** and a **breeding range**. For the North America polygon, we will use the **rnaturalearth** package to load a medium resolution map of the countries within North America. 
 
-Rather than provide a breeding range shapefile from something like BirdLife International or eBirds, which cannot be distributed, we will just use the geopolitical boundaries to approximate the breeding range. In your own analyses, you would use a breeding range shapefile. 
+For the breeding range, I have provided a shapefile hosted on github. Other options, such as BirdLife International or eBird are easily available and can be requested access at the .
 
-To be sure - check that they are all in the correct coordinate system (**CRS**). If you are unfamiliar with coordinate systems and projections in R, here is a quick [overview](https://www.nceas.ucsb.edu/sites/default/files/2020-04/OverviewCoordinateReferenceSystems.pdf). In short, most of the isoscape data that we are working with uses the **WGS84** coordinate system. This system uses **latitude** and **longitude** coordinates on the WGS84 reference ellipsoid. This is the coordinate system commonly used by organizations that provide GIS data for the entire globe or many countries. Coordinate systems can be directly referenced using an EPSG Geodetic Parameter Dataset code (e.g., EPSG:4326 = WGS84).
-
-To ensure that all files are in the proper format, we will project/reproject them to be in the **EPSG 4326** coordinate system. When projecting these files, the code produces several warnings that can be ignored for our purposes. In short, these warnings tell us that the data we are attempting to project is missing CRS information in WKT format and must use the outdated proj4string format. 
+To be sure - we will reproject them so that they are all in the correct coordinate system (**CRS**). If you are unfamiliar with coordinate systems and projections in R, here is a quick [overview](https://www.nceas.ucsb.edu/sites/default/files/2020-04/OverviewCoordinateReferenceSystems.pdf). In short, most of the isoscape data that we are working with uses the **WGS84** coordinate system (EPSG 4326). This system uses **latitude** and **longitude** coordinates on the WGS84 reference ellipsoid. This is the coordinate system commonly used by organizations that provide GIS data for the entire globe or many countries. Coordinate systems can be directly referenced using an EPSG Geodetic Parameter Dataset code (e.g., EPSG:4326 = WGS84).
 
 ```{r range}
 northamerica <- ne_countries(continent = "North America", scale = 50, returnclass = "sf") %>%
   st_transform(st_crs('EPSG:4326')) # Project to WGS84
 
-setwd("C:/Users/jacks/OneDrive - The University of Western Ontario/Western University - PhD/Workshops/OCTWS - 2023")
+breeding.range <- st_read("/vsicurl/https://github.com/JacksonKusack/Assignment-Workshop/raw/main/Shapefiles/ABDU_baldassarre_lowdens.shp") %>% # Load a shapefile from GitHub
+    st_transform(st_crs('EPSG:4326')) # Project to WGS84
+#breeding.range <- ne_states(country = c("Canada","United States of America"), returnclass = "sf") %>%
+#  st_transform(st_crs('EPSG:4326')) %>% # Project to WGS84
+#  filter(iso_a2 == "CA" | name %in% c("Michigan","New York","Wisconsin","Minnesota","Washington","Oregon","North Dakota",
+#                                      "Vermont","New Hampshire","Alaska","Maine","Connecticut","Massachusetts")) %>%
+#  as("Spatial") # Convert to 'SpatialPolygonsDataFrame'
 
-breeding.range <- ne_states(country = c("Canada","United States of America"), returnclass = "sf") %>%
-  st_transform(st_crs('EPSG:4326')) %>% # Project to WGS84
-  filter(iso_a2 == "CA" | name %in% c("Michigan","New York","Wisconsin","Minnesota","Washington","Oregon","North Dakota",
-                                      "Vermont","New Hampshire","Alaska","Maine","Connecticut","Massachusetts")) %>%
-  as("Spatial") # Convert to 'SpatialPolygonsDataFrame'
-
-plot(breeding.range, col = brewer.pal(9, "YlGnBu")[5], border = NA)
-plot(northamerica, add = T)
+plot(st_geometry(breeding.range), col = brewer.pal(9, "YlGnBu")[5], border = NA)
+plot(st_geometry(northamerica), add = T)
 ```
 
 If you are unfamiliar with spatial data in R, the two data types that we are working with in this document are (1) **polygons** (i.e., sequence of two-dimensional points forming a closed non-self-intersecting shape) and (2) **rasters** (i.e., grid of cells storing values, all of which are the same size). Polygonal data in R has two commonly used formats, **sp** and **sf**. It is recommended to use 'sf' over 'sp', as 'sf' is the newer version and the community is transitioning to being completely 'sf' in the future. Unfortunately many of the functions necessary to run this code rely on the package **raster** which is currently incompatible with 'sf', for the time being at least. So, we will load/index/transform the data in 'sf' format and then convert to 'sp' using the **as(x, "Spatial")** function. 
@@ -83,13 +81,12 @@ Next we will download an **amount-weighted growing season \(\delta\)<sup>2</sup>
 
 ```{r isoscape}
 gsd <- getIsoscapes(isoType = "GlobalPrecipGS", timeout = 1200)
-gsd <-asdasd 
   
 path <- ebirdst::ebirdst_download(species = "amewoo")
 
 ebirdst::ebirdst_runs
 
-test <- st_read("/vsicurl/https://github.com/JacksonKusack/Assignment-Workshop/raw/main/MonarchRange_Final.shp") # Load a shapefile from GitHub
+
 
 plot(test)
 
