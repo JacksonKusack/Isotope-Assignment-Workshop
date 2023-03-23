@@ -1,25 +1,23 @@
 ---
-title: "ASsignment Workshop - OCTWS 2023"
+title: "Assignment Workshop - OCTWS 2023"
 author: "Jackson Kusack"
-date: Sys.Date()
+date: "`r Sys.Date()`"
 output: 
   prettydoc::html_pretty:
-  #html_document:
     theme: leonids
     highlight: github
-    #number_sections: TRUE
-    code_folding: hide
+    number_sections: TRUE
 ---
 
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(echo = TRUE, comment = "")
 ```
 
-This tutorial is meant to be a step-by-step guide for likelihood-based assignment methods, like those used in [Hobson et al. 2009](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0007915), [van Wilgenburg et al. 2011](https://esajournals.onlinelibrary.wiley.com/doi/abs/10.1890/09-2047.1), [Vander Zanden et al. 2014](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.12229), and [Asante et al. 2017](https://academic.oup.com/condor/article/119/2/261/5152964). Using this code, you will be able to probabilistically assign individuals to origin by comparing stable-isotopes values of tissues to established spatial surfaces for stable isotope values within precipitation. 
+This tutorial is meant to be a step-by-step guide for likelihood-based assignment methods, like those used in [Hobson et al. 2009](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0007915), [van Wilgenburg et al. 2011](https://esajournals.onlinelibrary.wiley.com/doi/abs/10.1890/09-2047.1), [Vander Zanden et al. 2014](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.12229), and [Kusack et al. 2022](https://wildlife.onlinelibrary.wiley.com/doi/abs/10.1002/jwmg.22324). Using this code, you will be able to probabilistically assign individuals to origin by comparing stable-isotopes values of tissues to established spatial surfaces for stable isotope values within precipitation. 
 
-We will mainly use functions within the newly published **AssignR** package (see [Ma et al. 2020](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13426)). Our approach is similar to the overall workflow described in the linked paper, but with a few subtle changes. 
+We will mainly use functions within the **AssignR** package (see [Ma et al. 2020](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13426)), but mention some functions within the **isocat** package (see [Campbell et al. 2020](https://doi.org/10.1515/ami-2020-0004). Our approach is similar to the overall workflow, but with a few changes. 
 
-For this tutorial we provide all of the necessary data. All other data will be generated within R, including the isotope data for the assigned individuals. These data could be generated to represent any species, but for the purpose of this tutorial, we have intended that these data are primary feather stable-hydrogen values (**\(\delta\)<sup>2</sup>H<sub>f</sub>**) from a population of [Sandhill Cranes](https://www.allaboutbirds.org/guide/Sandhill_Crane/overview) (see link for species description) in northeastern **North America**, collected during the Fall/Winter (Sept-Jan). Regardless of whether the data are real/simulated, we know that these feathers were grown on the breeding grounds and we can use these feathers to assign individuals to breeding/moult origin. For your own data, it is important to understand moult timing and life history of your species to know exactly where the tissues were grown. 
+For this tutorial we provide all of the necessary data. All other data will be generated within R, including the isotope data for the assigned individuals.
 
 ***
 
@@ -30,14 +28,16 @@ The following packages are required to run this Rmd script. They will automatica
 ```{r packages, warning=F, message=F}
 if (!require('assignR')) install.packages('assignR'); library('assignR')
 if (!require('raster')) install.packages('raster'); library('raster')
+if (!require('terra')) install.packages('terra'); library('terra')
 if (!require('sf')) install.packages('sf'); library('sf')
 if (!require('sp')) install.packages('sp'); library('sp')
 if (!require('rasterVis')) install.packages('rasterVis'); library('rasterVis')
 if (!require('rnaturalearth')) install.packages('rnaturalearth'); library('rnaturalearth')
-if (!require('rmapshaper')) install.packages('rmapshaper'); library('rmapshaper')
+if (!require('dplyr')) install.packages('dplyr'); library('dplyr')
 if (!require('RColorBrewer')) install.packages('RColorBrewer'); library('RColorBrewer')
 if (!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
 if (!require('plotly')) install.packages('plotly'); library('plotly')
+if (!require('rdryad')) install.packages('rdryad'); library('rdryad')
 
 custom.palette <- colorRampPalette(brewer.pal(9, "YlGnBu")) # Color palette
 ```
@@ -45,154 +45,261 @@ custom.palette <- colorRampPalette(brewer.pal(9, "YlGnBu")) # Color palette
 
 ***
 
+# - Isotope data
+
+For this tutorial, we will use data collected during my PhD thesis on [American Black Ducks](https://www.allaboutbirds.org/guide/American_Black_Duck/overview) (see link for species description). These data were collected from hunters, via the parts collection and species composition surveys, from across their range in eastern **North America** during hunting season (Sep-Jan). From these ducks, we have primary feather stable-hydrogen values (**\(\delta\)<sup>2</sup>H<sub>f</sub>**; relative to the Vienna Standard Mean Ocean Water, **VSMOW**). These data are published and publicly available [here](https://datadryad.org/stash/dataset/doi:10.5061/dryad.95x69p8nm), but we won't repeat the analysis from that paper. 
+
+Based on timing of capture and knowing the moult schedule for black ducks, we know that these feathers were grown on the breeding grounds or moulting sites and we can use these feathers to assign individuals to breeding/moult origin. For your own data, it is important to understand moult timing and life history of your species to know exactly where the tissues were grown. 
+
+```{r duck.data}
+duck.d2h <- read.csv(rdryad::dryad_files_download(1697805)[[1]]) # Download data directly from Dryad
+
+glimpse(duck.d2h) # Check data structure
+```
+
+To make this more manageable, we will just select juvenile birds harvested in Ontario. 
+
+```{r subset}
+duck.d2h <- filter(duck.d2h, age == "I") %>% # Select the juveniles
+  filter(state.prov == "ON") %>% # select the birds harvested in Ontario
+  select(id.lab, VSMOW, long.dec, lat.dec)
+
+nrow(duck.d2h) # sample size
+```
+
+So that leaves us with 41 juvenile black ducks harvested in Ontario across 2 hunting seasons (2017-2018, 2018-2019). 
+
+***
+
 # - Shapefiles
 
-Before we start working with isotopes, we should ensure that all the necessary polygons for the assignment are loaded. These polygons are: **North America** and a **breeding range**. For the North America polygon, we will use the **rnaturalearth** package to load a medium resolution map of the countries within North America. 
+Before we start working with isoscapes, we should ensure that all the necessary polygons for the assignment are loaded. These polygons are: **North America** and a **breeding range**. For the North America polygon, we will use the **rnaturalearth** package to load a map of the countries/states within North America. 
 
-For the breeding range, I have provided a shapefile hosted on github. Other options, such as BirdLife International or eBird are easily available and can be requested access at the .
+For the breeding range, I have provided a shapefile hosted on github (https://github.com/JacksonKusack/Isotope-Assignment-Workshop). Other easily accessible options exist for these breeding ranges for birds, such as [BirdLife International](http://datazone.birdlife.org/species/requestdis) or [eBird](https://science.ebird.org/en/status-and-trends/download-data) which both require a simple request for access but provide the data quickly.
 
-To be sure - we will reproject them so that they are all in the correct coordinate system (**CRS**). If you are unfamiliar with coordinate systems and projections in R, here is a quick [overview](https://www.nceas.ucsb.edu/sites/default/files/2020-04/OverviewCoordinateReferenceSystems.pdf). In short, most of the isoscape data that we are working with uses the **WGS84** coordinate system (EPSG 4326). This system uses **latitude** and **longitude** coordinates on the WGS84 reference ellipsoid. This is the coordinate system commonly used by organizations that provide GIS data for the entire globe or many countries. Coordinate systems can be directly referenced using an EPSG Geodetic Parameter Dataset code (e.g., EPSG:4326 = WGS84).
+To be safe - we will reproject them so that they are all in the correct coordinate system (**CRS**). If you are unfamiliar with coordinate systems and projections in R, I won't go through them here. Here is a quick [overview](https://www.nceas.ucsb.edu/sites/default/files/2020-04/OverviewCoordinateReferenceSystems.pdf). Most of the isoscape data that we are working with uses the **WGS84** coordinate system (EPSG 4326). This system uses **latitude** and **longitude** coordinates on the WGS84 reference ellipsoid. This is the coordinate system commonly used by organizations that provide GIS data for the entire globe or many countries. 
 
 ```{r range}
-northamerica <- ne_countries(continent = "North America", scale = 50, returnclass = "sf") %>%
+northamerica <- ne_countries(continent = "North America", scale = 50, returnclass = "sf") %>% # Countries
+  st_transform(st_crs('EPSG:4326')) # Project to WGS84
+
+northamerica.states <- ne_states(country =  c("Canada","United States of America"), returnclass = "sf") %>% # States and provinces
   st_transform(st_crs('EPSG:4326')) # Project to WGS84
 
 breeding.range <- st_read("/vsicurl/https://github.com/JacksonKusack/Assignment-Workshop/raw/main/Shapefiles/ABDU_baldassarre_lowdens.shp") %>% # Load a shapefile from GitHub
     st_transform(st_crs('EPSG:4326')) # Project to WGS84
-#breeding.range <- ne_states(country = c("Canada","United States of America"), returnclass = "sf") %>%
-#  st_transform(st_crs('EPSG:4326')) %>% # Project to WGS84
-#  filter(iso_a2 == "CA" | name %in% c("Michigan","New York","Wisconsin","Minnesota","Washington","Oregon","North Dakota",
-#                                      "Vermont","New Hampshire","Alaska","Maine","Connecticut","Massachusetts")) %>%
-#  as("Spatial") # Convert to 'SpatialPolygonsDataFrame'
+```
 
+Here is what that range looks like:
+
+```{r range.plot}
 plot(st_geometry(breeding.range), col = brewer.pal(9, "YlGnBu")[5], border = NA)
 plot(st_geometry(northamerica), add = T)
 ```
 
-If you are unfamiliar with spatial data in R, the two data types that we are working with in this document are (1) **polygons** (i.e., sequence of two-dimensional points forming a closed non-self-intersecting shape) and (2) **rasters** (i.e., grid of cells storing values, all of which are the same size). Polygonal data in R has two commonly used formats, **sp** and **sf**. It is recommended to use 'sf' over 'sp', as 'sf' is the newer version and the community is transitioning to being completely 'sf' in the future. Unfortunately many of the functions necessary to run this code rely on the package **raster** which is currently incompatible with 'sf', for the time being at least. So, we will load/index/transform the data in 'sf' format and then convert to 'sp' using the **as(x, "Spatial")** function. 
+If you are unfamiliar with spatial data in R, the three data types that we are working with in this document are (1) **polygons** (i.e., sequence of two-dimensional points forming a closed non-self-intersecting shape), (2) **points** (i.e., series of zero-dimensional points) and (3) **rasters** (i.e., grid of cells storing values, all of which are the same size). 
 
+For this tutorial, we will use the *terra* and *sf* packages for most functions and data manipulation, but may have to switch back to *sp* or *raster* R objects, because the functions necessitate the older versions. Moving forward, *terra* and *sf* will be the supported standards, but until all packages adopt these formats, we have to work around them. So, we will load/index/transform the data in *sf* format but convert to *sp* temporarily using the **as(x, "Spatial")** function. 
 
+Now we have the shapefiles loaded, let's see where these black ducks were harvested. 
+
+```{r points.plot}
+duck.points <- vect(duck.d2h, geom = c("long.dec", "lat.dec")) # create vect (points) object
+
+plot(duck.points, col = 'red', pch = 17)
+plot(st_geometry(northamerica.states), add = T)
+```
+
+Mostly, around southern Ontario, but some in central and western Ontario. Note some fall outside of Ontario, because these points are based on hunter estimated locations (i.e., _____ km east of _____ town), but this won't affect these methods becuase we won't use the harvest location here. 
 
 ***
 
 # - Isoscape
 
-Next we will download an **amount-weighted growing season \(\delta\)<sup>2</sup>H precipitation isoscape** (see [Bowen et al. 2005](https://link.springer.com/article/10.1007/s00442-004-1813-y) for methods), from the **AssignR** package. This surface provides two layers: a **mean** and **sd \(\delta\)<sup>2</sup>H values**. 
+Next we will download an **amount-weighted growing season \(\delta\)<sup>2</sup>H precipitation isoscape** (see [Bowen et al. 2005](https://link.springer.com/article/10.1007/s00442-004-1813-y) for methods), from the **AssignR** package. This function will save a version of this surfaces locally on your harddrive each time it's run. This surface provides four layers: a **mean** and **sd** surface for **\(\delta\)<sup>2</sup>H values** and **\(\delta\)<sup>18</sup>O values**. For this workshop, we'll just use the **\(\delta\)<sup>2</sup>H values** surfaces. 
 
 ```{r isoscape}
-gsd <- getIsoscapes(isoType = "GlobalPrecipGS", timeout = 1200)
-  
-path <- ebirdst::ebirdst_download(species = "amewoo")
+gsd <- getIsoscapes(isoType = "GlobalPrecipGS", timeout = 1200) %>% 
+  projectRaster(crs = CRS(SRS_string = 'EPSG:4326'))
 
-ebirdst::ebirdst_runs
-
-
-
-plot(test)
-
-d2h_lrNA <- projectRaster(d2h_lrNA, crs = CRS(SRS_string = 'EPSG:4326'))
+gsd <- gsd[[1:2]] # Pull out the d2H surfaces (1 and 2)
 ```
 
-Visualizing this plot, we can see the we have data on hydrogen isotopes within precipitation for much of the globe, excluding Antarctica and Greenland. 
+Visualizing this isoscape and error surface, we can see the we have data on hydrogen isotopes within precipitation for much of the globe! Note the error is much higher near the poles, which makes the error in other areas difficult to interpret. When we mask these later, it will be easier to see.  
 
 ```{r isoscape plot}
-plot(d2h_lrNA, xlab="Longitude", ylab="Latitude", col = custom.palette(16))
+plot(gsd, xlab="Longitude", ylab="Latitude", col = custom.palette(16))
 ```
+
 
 ***
 
 ## - Calibration
 
-To assign individuals to this surface, it must be calibrated into tissues (i.e., feather) relevant values. This can be done because of predictable relationships between stable-hydrogen values within feathers (**\(\delta\)<sup>2</sup>H<sub>f</sub>**) and stable-hydrogen values within precipitation (**\(\delta\)<sup>2</sup>H<sub>p</sub>**) at the location of feather growth (see [Hobson et al. 2012](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0035137)).  
+Now we have the isoscape, we need to calibrate the mean **\(\delta\)<sup>2</sup>H<sub>p</sub>** values to tissue relevant values. This can be done because of predictable relationships between stable-hydrogen values within feathers (**\(\delta\)<sup>2</sup>H<sub>f</sub>**) and stable-hydrogen values within precipitation (**\(\delta\)<sup>2</sup>H<sub>p</sub>**) at the location of feather growth (see [Hobson et al. 2012](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0035137)).  
 
-To convert this surface, AssignR provides some known-origin data from [Clark et al. 2006/2009](https://www.nrcresearchpress.com/doi/full/10.1139/Z06-135#.X05pXHlKhqM) on **Lesser Scaup** (n = 75). This is the data that we will use to run the calibration. 
+At this point we could limit the isoscape to our breeding range, but we may have calibration data (i.e., known-origin tissues) from another species that could be found outside this range. Therefore, I find it easier to do this step on the global isoscape surface. This takes a bit longer, but it's only a minor difference. 
+
+AssignR provides some raw known-origin data (i.e., location of known-origin tissues and their **\(\delta\)<sup>2</sup>H** values) stored the *knownOrig* dataset. At the time this was written, there were data from 18 publications stored in the database and 4062 unique known-origin samples. Each individual has additional metadata, but the available data isn't complete in some cases. When looking at this data, be careful to ensure that the data are appropriate for your study and, as an extra step, match the original publication.  
 
 ```{r knownorig}
 data("knownOrig")
-(scaup <- subOrigData(dataset = 4, ref_scale = NULL)) 
-scaup.points <- spTransform(scaup$data, CRS(SRS_string = 'EPSG:4326'))
+knownOrig$sources[1:2] # list the dataset names and ids
 ```
 
-Using these data, we can calibrate the **d2h_world** isoscape and produce a new isoscape where values are predicted feather values (**\(\delta\)<sup>2</sup>H<sub>f</sub>**). To do this, we can use the **calRaster(...)** function, providing it with our known origin data (**scaup**) and precipitation isoscape (**d2h_world**)
+Lets see what species are available: 
+
+```{r species}
+unique(knownOrig$samples$Taxon)
+```
+
+Looks like there are some data for Mallard, which we can use to calibrate the isoscape for our black duck data. One option would be to use a single study that looked at Mallard, such as van Dijk et al. 2014. For that we can use the function **subOrigData(...)**. We can specify the dataset, by number, and which marker we want. For van Dijk et al. 2014, the dataset is #12. 
+
+```{r knownorig.mallard}
+cal.mall <- subOrigData(marker = 'd2H', dataset = 12, ref_scale = NULL) # Extract data
+cal.mall$data <- spTransform(cal.mall$data, CRS(SRS_string = 'EPSG:4326')) # reproject the data
+```
+
+These datasets provide information on the *source* of the data (i.e., lab methods and publication information) and the *data* itself (e.g., tissue isotopes, age, taxon, site), as well as other metadata. For this data to work with the below functions, we need to keep it in this format, but we can always modify the data portion directly (as we did with the projection above).
+
+```{r knownorig.structure}
+str(cal.mall)
+```
+
+AssignR also provides methods to transform the **\(\delta\)<sup>2</sup>H** values into different reference scales. For details on these methods sees [Magozzi et al. 2021](https://besjournals.onlinelibrary.wiley.com/doi/10.1111/2041-210X.13556). Simply, this allows us to combine data from different labs, if they use different keratin standards on different scales. If the **ref_scale** is changed though, you need to ensure that the sample data are also converted to this scale. If everything was done in the same lab or the two labs used the same methods, then you can set this to NULL.
+
+Example:
+
+```{r calib.test}
+test.transformed <- subOrigData(marker = 'd2H', dataset = 12, ref_scale = "VSMOW_H")
+
+mean(cal.mall$data$d2H) # Untransformed mean
+mean(test.transformed$data$d2H) # Transformed mean
+```
+
+Luckily for us, the isotope data from van Dijk et al. 2014 were done using keratin standards on the same scale as the sample black duck data (e.g., *OldEC.1_H_1*). This is the data that we will use to run the calibration. 
+
+We can calibrate the **gsd** isoscape and produce a new isoscape where values are predicted feather values (**\(\delta\)<sup>2</sup>H<sub>f</sub>**). To do this, we can use the **calRaster(...)** function, providing it with our known origin data (**cal.mall**) and precipitation isoscape (**d2h_world**).
 
 ```{r calibration}
-r <- calRaster(known = scaup, isoscape = d2h_lrNA, interpMethod = 1, verboseLM = F, genplot = F)
-r.model <- r$lm.model
-summary(r.model)
+r <- calRaster(known = cal.mall, isoscape = gsd, interpMethod = 1, verboseLM = F, genplot = F) # Calibrate the mean and sd values from our isoscape
+r.model <- r$lm.model # Extract model results
+summary(r.model) 
 
 p <- ggplot(data = r$lm.data, aes(y = tissue.iso, x = isoscape.iso)) + 
   geom_point()  + 
-  stat_smooth(method = "lm") + 
+  stat_smooth(method = "lm", formula = 'y ~ x') + 
   theme_classic()
   
 ggplotly(p)
 ```
 
-The produced calibration equation doesn't exactly match the one in in Clark et al. 2009, because the **amount-weighted growing season \(\delta\)<sup>2</sup>H precipitation isoscape** has been updated with additional years of precipitation data since publication.
+This calibration relationship produces the following linear equation (i.e., calibration equation):
 
 $$\delta^2H_f = `r round(summary(r.model)$coefficients[2], 2)` * \delta^2H_p - `r abs(round(summary(r.model)$coefficients[1],2))`$$
 
-This calibration has been automatically applied to the isoscape. Now we have a new isoscape object **r**. 
+First, you might notice that the produced calibration equation doesn't exactly match the one in in [van Dijk et al. 2014](https://onlinelibrary.wiley.com/doi/full/10.1111/j.1600-048X.2013.00232.x): 
+
+$$\delta^2H_f = 1.36 * \delta^2H_p - 21.9$$
+
+This is because the **amount-weighted growing season \(\delta\)<sup>2</sup>H precipitation isoscape** has been updated with additional years of precipitation data since publication. And AssignR doesn't contain all of the data in this case. But the first point would still apply if all the data were available.  
+
+The mean surface has been updated using this calibration relationship, but the error surface has also been modified using the calibration equation. For the specific methods see see [Ma et al. 2020](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13426)), but the general idea here is the resulting value is incoporates the **standard devation of (\delta\)<sup>2</sup>H values** at each cell, the **standard devation of residuals within the calibration equation**, and the **covariance between the two measures of variation**.
+
+Now we have a new isoscape object **r** which again is a rasterstack containing the calibrated **mean** and **error** surfaces. 
 
 ```{r calibrated isoscape}
 plot(r$isoscape.rescale, xlab="Longitude", ylab="Latitude", col = custom.palette(16))
-plot(northamerica, add = T)
 ```
 
-To limit this isoscape to the breeding range of the species of interest we then apply a **mask** function. We could use the mask argument within the **calRaster(...)** function, but the mask needs to contain the locations of the known origin tissues, which doesn't work in this case as the Scaup samples are from western North America. Further, the 'mask' argument does not use the actual polygon to limit the isoscape, it uses the extent/bounding box. So, we can use the functions within the **raster** package to manually apply the mask. 
+To limit this isoscape to the breeding range of the species of interest we then apply a **mask** function. We could use the mask argument within the **calRaster(...)** function, but the 'mask' argument does not use the actual polygon to limit the isoscape, it uses the extent/bounding box. So, we can use the functions within the *terra* package to manually apply the mask. 
 
 ```{r mask}
-r$isoscape.rescale <- mask(r$isoscape.rescale, breeding.range)
-ext <- extent(breeding.range) 
-r$isoscape.rescale <- crop(r$isoscape.rescale, ext)
+r$isoscape.rescale <- mask(rast(r$isoscape.rescale), breeding.range) %>% # Mask to breeding range
+  crop(extent(breeding.range)) %>% # Crop to breeding range
+  raster::stack() # Convert back to raster object
 
 plot(r$isoscape.rescale, xlab="Longitude", ylab="Latitude", col = custom.palette(16))
-plot(northamerica, add = T)
-```
-
-***
-
-# - Feather isotopes (\(\delta\)<sup>2</sup>H)
-
-We will use simulated data from a theoretical distribution of stable-hydrogen (\(\delta\)<sup>2</sup>H) values $N(-120, 20)$ (These values are relative to the Vienna Standard Mean Ocean Water, **VSMOW**). This distribution was chosen to be representative of American Black Duck populations in Northeastern North America, based on values from **Kusack et al. in prep**. 
-
-We will save this data as the object **birds**, which will be used from here on.
-
-```{r feathers}
-birds <- data.frame(seq(1:60), sample(rnorm(1000, mean = -120, sd = 20), size = 60))
-names(birds) <-  c("Index", "VSMOW")
-
-plot(birds$VSMOW, col = brewer.pal(9, "YlGnBu")[5], pch = 16)
-plot(northamerica, add = T)
 ```
 
 ***
 
 # - Assignment to Origin
 
-Now we can attempt an assignment to origin using the function **pdRaster(...)** this function will produce a posterior probability of origin surface, taking into account the **mean (\delta\)<sup>2</sup>H<sub>f</sub> values** at each cell, as well as a measure of **variance** which takes into account the **standard devation of (\delta\)<sup>2</sup>H values** at each cell, the **standard devation of residuals within the calibration equation**, and the **covariance between the two measures of variation**. The probability is estimated using a **Normal Probability Density function**:
+Now we can attempt an assignment to origin using the function **pdRaster(...)**. This function will produce a posterior probability of origin surface, taking into account the **mean (\delta\)<sup>2</sup>H<sub>f</sub> values** at each cell, as well as our estimate of error. The probability is estimated using a **Normal Probability Density function**:
 
 $$f(y|\mu_c,\sigma_c) = \frac{1}{\sigma_c \sqrt{2\pi}} e^{-\frac{1}{2}(\frac{y-\mu_c}{\sigma_c})^2 }$$
 Where $f(y|\mu_c,\sigma_c)$ represents the probability that a given cell (**c**) within the **\(\delta\)<sup>2</sup>H<sub>f</sub>** isoscape represents a potential origin for an individual of unknown origin (**y**), given the expected mean **\(\delta\)<sup>2</sup>H<sub>f</sub>** for that cell ($\mu_c$) from the calibrated **\(\delta\)<sup>2</sup>H<sub>f</sub>** isoscape, and the expected standard deviation (\(\sigma_c\)) of **\(\delta\)<sup>2</sup>H<sub>f</sub>** between individuals growing their feathers at the same locality. 
 
-Although we won't apply any **prior probabilities of origin** here, a spatially explicit surfaces (in raster format) can be incorporated into this function through the argument "prior = surface", which applies **Bayes Rule**:
 
-$$f_x = \frac{f(y|\mu_c,\sigma_c)f_{prior}}{\sum_{i}{f(y|\mu_c,\sigma_c)f_{prior}}}$$
 ```{r assign}
-comment(breeding.range)
-comment(r$isoscape.rescale)
+origins <- pdRaster(r, data.frame(duck.d2h), mask = as(breeding.range, 'Spatial'), genplot = F)
+```
 
-origins <- pdRaster(r, birds, mask = breeding.range, genplot = F)
+Each resulting probability surfaces is normalized to sum to 1, which we can check:
+
+```{r normalized}
 cellStats(origins[[10]], 'sum') # Posterior probabilities across a single raster layer should sum to 1
 ```
 
-
-After applying the above code, we now have a **Rasterstack** (i.e., series of raster layers with identical extent and resolution; **origins**) where each layer is' a probability of origin surface for each respective individual within our **birds** object (n = `r length(birds)`). For example, this is what the surface looks like for 'American Black Duck' 3. 
+After applying the above code, we now have a **Rasterstack** (i.e., series of raster layers with identical extent and resolution; **origins**) where each layer is' a probability of origin surface for each respective individual within our **duck.d2h** object (n = `r nrow(duck.d2h)`). For example, this is what the surface looks like for black duck 3. 
 
 ```{r plotassign}
 plot(origins[[3]], col = custom.palette(8))
-plot(breeding.range, add = T)
-plot(northamerica, add = T)
+plot(st_geometry(breeding.range), add = T)
+plot(st_geometry(northamerica), add = T)
+```
+
+But what if have have prior knowledge that can inform 
+
+***
+
+## - Prior Probabilities of Origin
+
+Priors allow us to incorporate known information about the system into these assignments. For example, we can include genetic information into the assignment where the genetic similarity between an assigned individual and different breeding regions are used to refine the region of origin. These probabilities are incorporated in the likelihood-based assignment methods through **Bayes Rule**:
+
+$$f_x = \frac{f(y|\mu_c,\sigma_c)f_{prior}}{\sum_{i}{f(y|\mu_c,\sigma_c)f_{prior}}}$$
+
+In practical terms, these priors are spatially explicit probability surfaces (in raster format) that can be incorporated into the **pdRaster(...)** function through the argument "prior = surface". To see how this effects the probability surfaces, we'll create a theoretical prior. We'll use the province/state surface to represent different breeding regions and we'll assign a probability to those regions. 
+
+To get these prior surfaces, we can start with polygonal data where each shape has the probability as an attribute/variable. Because we are making this up, we have to mannually assign these values to our province/state shapefile, which is easy enough. The values that I've chosen ar
+
+```{r}
+prior <- northamerica.states
+prior$prob[prior$name == "Ontario"] <- 0.1
+prior$prob[prior$name == "Québec"] <- 0.4
+prior$prob[prior$name %in% c("New Brunswick","Nova Scotia","Prince Edward Island")] <- 0.2
+prior$prob[prior$name %in% c("Newfoundland and Labrador")] <- 0.3
+prior$prob[prior$admin == "United States of America"] <- 0
+```
+
+Also, note that this prior is the same for all individuals, in this case. We could develop a RasterStack with a unique prior for each individual. This would probably be the case if we were doing genetics and had genetic information for all sampled indiviudals, but a standard prior could be necessary if we only had information for a given region or cohort. 
+
+Once we have our probabilities assigned to the poylgons, we need to rasterize them using the function **rasterize(...)** which converts the polygons into raster data with the same resolution and extent as the input raster. We still need to mask the resulting raster though.
+
+```{r rasterize prior}
+prior <- rasterize(prior, r$isoscape.rescale[[1]], field = "prob") %>% # rasterize the polygons to match the calibrated isoscape
+  mask(breeding.range) # mask
+
+plot(prior, col = custom.palette(16))
+```
+
+Now we just need to input the prior into pdRaster.
+
+```{r assign prior}
+origins.prior <- pdRaster(r, data.frame(duck.d2h), mask = as(breeding.range, 'Spatial'), prior = prior, genplot = F) # assignment with the prior
+```
+
+If we compare the two outputs, selecting the 12th duck this time, we can see the differences. Notice that while the probability is lower in Ontario, it's not 0. We gave a lower relative probability compared to Quebec and easern Canada, but the resulting probabilies are not 0. 
+
+```{r assign compare}
+plot(origins[[12]], col = custom.palette(8))
+plot(st_geometry(breeding.range), add = T)
+plot(st_geometry(northamerica), add = T)
+
+plot(origins.prior[[12]], col = custom.palette(8))
+plot(st_geometry(breeding.range), add = T)
+plot(st_geometry(northamerica), add = T)
 ```
 
 If we are only interested in one individual, this surface can give a good idea where they likely originated, but we are rarely ever interested in one individual. The power of this method relies on examining likely origin across a large group of individuals. 
@@ -222,10 +329,10 @@ Comparing this binary surface to the probability surface for the same individual
 ```{r binary plots}
 par(mfrow = c(1,2))
 plot(origins[[3]], col = custom.palette(8)) 
-plot(northamerica, add = T)
+plot(st_geometry(northamerica), add = T)
 
 plot(binary.origins[[3]], col = custom.palette(8))
-plot(northamerica, add = T)
+plot(st_geometry(northamerica), add = T)
 ```
 
 Now we can sum all of these surfaces to create our final raster surface where the value at each a given represents the **number of individuals probabalistically assigned to that cell, given the odds ratio of 2:1**.
@@ -257,8 +364,8 @@ Similar to **ggplot2**, you can add additional graphical layers using the **laye
 ```{r plot}
 (p1 <- levelplot(origins, col.regions = custom.palette(16), margin=FALSE, 
           legend=list(top=list(fun=grid::textGrob("Count", y=0.3, x=1.09)))) +
-    latticeExtra::layer(sp.polygons(northamerica, size = 0.5)) +
-    latticeExtra::layer(sp.polygons(breeding.range, fill = NA, alpha = 1, col = "black", lwd = 1.5, lty = 3)))
+    latticeExtra::layer(sp.polygons(as(northamerica, "Spatial"), size = 0.5)) +
+    latticeExtra::layer(sp.polygons(as(breeding.range, "Spatial"), fill = NA, alpha = 1, col = "black", lwd = 1.5, lty = 3)))
 ```
 
 Then we can export this plot using the **png(...)** function. 
@@ -271,26 +378,54 @@ invisible(dev.off())
 
 ***
 
-# - References
+# - Miscellaneous Tips
 
-Asante CK, Jardine TD, Van Wilgenburg SL, Hobson KA (**2017**) Tracing origins of waterfowl using the Saskatchewan River Delta: incorporating stable isotope approaches in continent-wide waterfowl management and conservation. The Condor 119:261–274. [Link](https://doi.org/10.1650/CONDOR-16-179.1) 
+1. What if you don't have an error surface?
+
+```{r eval = F}
+library 
+```
+
+2. What if you just want to use the calibration equation?
+
+```{r eval = F}
+
+```
+
+3. Clustering based on surface similarity?
+ 
+```{r eval = F}
+
+```
+ 
+4. Multiple isotopes?
+
+```{r eval = F}
+
+```
+
+
+# - References
 
 Baldassarre GA (**2014**) Ducks, geese, and swans of North America. JHU Press.
 
 Bowen GJ, Wassenaar LI, Hobson KA (**2005**) Global application of stable hydrogen and oxygen isotopes to wildlife forensics. Oecologia 143:337–348. [Link](https://doi.org/10.1007/s00442-004-1813-y) 
 
-Clark RG, Hobson KA, Wassenaar LI (**2006**) Geographic variation in the isotopic (δD, δ13C, δ15N, δ34S) composition of feathers and claws from Lesser Scaup and Northern Pintail: implications for studies of migratory connectivity. Can J Zool 84:1395–1401. [Link](https://doi.org/10.1139/Z06-135)
-
-Clark RG, Hobson KA, Wassenaar LI (**2009**) Corrigendum—Geographic variation in the isotopic (δD, δ13C, δ15N, δ34S) composition of feathers and claws from Lesser Scaup and Northern Pintail: implications for studies of migratory connectivity. Can J Zool 87:553–554 [Link](https://cdnsciencepub.com/doi/10.1139/Z09-059)
+Campbell CJ, Fitzpatrick MC, Vander Zanden HB, Nelson DM (**2020**) Advancing interpretation of stable isotope assignment maps: comparing and summarizing origins of known-provenance migratory bats. Anim Migr 7:27-41. [Link](https://doi.org/10.1515/ami-2020-0004)
 
 Hobson KA, Van Wilgenburg SL, Wassenaar LI, Larson K (**2012**) Linking hydrogen (δ2H) isotopes in feathers and precipitation: sources of variance and consequences for assignment to isoscapes. PLOS ONE 7:e35137. [Link](https://doi.org/10.1371/journal.pone.0035137)
 
-Hobson KA, Wunder MB, Van Wilgenburg SL, et al (**2009**) A method for investigating population declines of migratory birds using stable isotopes: origins of harvested Lesser Scaup in North America. PLOS ONE 4:e7915. [Link](https://doi.org/10.1371/journal.pone.0007915)
+Hobson KA, Wunder MB, Van Wilgenburg SL, et al. (**2009**) A method for investigating population declines of migratory birds using stable isotopes: origins of harvested Lesser Scaup in North America. PLOS ONE 4:e7915. [Link](https://doi.org/10.1371/journal.pone.0007915)
+
+Kusack JW, Tozer DC, Schummer ML, Hobson KA (**2023**) Origins of harvested American black ducks: stable isotopes support the flyover hypothesis. J Wildl Manag 87:e22324. [Link](https://wildlife.onlinelibrary.wiley.com/doi/abs/10.1002/jwmg.22324)
 
 Ma C, Vander Zanden HB, Wunder MB, Bowen GJ (**2020**) assignR: an R package for isotope-based geographic assignment. Methods in Ecol Evol 11:996–1001. [Link](https://doi.org/10.1111/2041-210X.13426)
 
+Magozzi, S, Bataille, CP, Hobson, KA, et al. (**2021**) Calibration chain transformation improves the comparability of organic hydrogen and oxygen stable isotope data. Methods Ecol Evol 12:732–747. [Link](https://doi.org/10.1111/2041-210X.13556)
+
+van Dijk JGB, Meissner W, Klaassen M (**2014**) Improving provenance studies in migratory birds when using feather hydrogen stable isotopes. J Avian Biol 45:103–108. [Link](https://onlinelibrary.wiley.com/doi/abs/10.1111/j.1600-048X.2013.00232.x)           
+    
+
 van Wilgenburg SL, Hobson KA (**2011**) Combining stable-isotope (δD) and band recovery data to improve probabilistic assignment of migratory birds to origin. Ecological Applications 21:1340–1351. [Link](https://doi.org/10.1890/09-2047.1) 
 
-Vander Zanden HB, Wunder MB, Hobson KA, et al (**2014**). Methods Ecol Evol 5:891-900. [Link](doi:10.1111/2041-210X.12229)
-
-
+Vander Zanden HB, Wunder MB, Hobson KA, et al. (**2014**) Contrasting assignment of migratory organisms to geographic origins using long-term versus year-specific precipitation isotope maps. Methods Ecol Evol 5:891-900. [Link](doi:10.1111/2041-210X.12229)
