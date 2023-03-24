@@ -87,7 +87,7 @@ northamerica.states <- ne_states(country =  c("Canada","United States of America
   st_transform(st_crs('EPSG:4326')) # Project to WGS84
 
 breeding.range <- st_read("/vsicurl/https://github.com/JacksonKusack/Assignment-Workshop/raw/main/Shapefiles/ABDU_baldassarre_lowdens.shp") %>% # Load a shapefile from GitHub
-    st_transform(st_crs('EPSG:4326')) # Project to WGS84
+  st_transform(st_crs('EPSG:4326')) # Project to WGS84
 ```
 
 Here is what that range looks like:
@@ -136,7 +136,7 @@ plot(gsd, xlab="Longitude", ylab="Latitude", col = custom.palette(16))
 
 ## - Calibration
 
-Now we have the isoscape, we need to calibrate the mean **\(\delta\)<sup>2</sup>H<sub>p</sub>** values to tissue relevant values. This can be done because of predictable relationships between stable-hydrogen values within feathers (**\(\delta\)<sup>2</sup>H<sub>f</sub>**) and stable-hydrogen values within precipitation (**\(\delta\)<sup>2</sup>H<sub>p</sub>**) at the location of feather growth (see [Hobson et al. 2012](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0035137)).  
+Now we have the isoscape, we need to calibrate the mean **\(\delta\)<sup>2</sup>H<sub>p</sub>** values to tissue relevant values. This can be done because of predictable relationships between stable-hydrogen values within tissues (**\(\delta\)<sup>2</sup>H<sub>tissues</sub>**) and stable-hydrogen values within precipitation (**\(\delta\)<sup>2</sup>H<sub>p</sub>**) at the location of feather growth (see [Hobson et al. 2012](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0035137)).  
 
 At this point we could limit the isoscape to our breeding range, but we may have calibration data (i.e., known-origin tissues) from another species that could be found outside this range. Therefore, I find it easier to do this step on the global isoscape surface. This takes a bit longer, but it's only a minor difference. 
 
@@ -380,30 +380,73 @@ invisible(dev.off())
 
 # - Miscellaneous Tips
 
-1. What if you don't have an error surface?
+Below are a few extra pointers that can hopefully answer some questions that we don't have time to fully explore. None of the below code runs or makes logical sense, but could be inserted above if the object names are changed. 
+
+## What if you just want to use the calibration equation?
+
+If you don't have raw calibration data, we could use AssignR with a lot of tweaking, but isocat is much easier. Because there are no explicitt calibration functions in isocat, using the linear equation to convert the isoscape before inputting the surface into the assignment function (**ccc**) is the workflow anyways.
 
 ```{r eval = F}
-library 
+library(isocat)
+
+cal.sd # SD of residuals from the calibration equation
+cal.slope # slope for tha calibration equation
+cal.intercept # intercept for tha calibration equation
+
+cal.iso <- isoscape * cal.slope + cal.intercept
+
+assignmentModels <- isotopeAssignmentModel(ID = samples$ID, 
+                                           isotopeValue = samples$isotopeValue, 
+                                           SD_indv = cal.sd, 
+                                           precip_raster = cal.iso, 
+                                           precip_SD_raster = cal.iso.sd)
 ```
 
-2. What if you just want to use the calibration equation?
+## What if you don't have an error surface?
+
+Here we have to input a placeholder error surface in for the **precip_SD_raster**. Personally, I use isocat, because the process is more straight-forward. For isocat, we input an error surface populated with zero's (i.e., no error). Obviously this isn't reality, but if we don't have the error surface, this is a work around.
+
+In isocat's workflow, you specify the calibration and isoscape error separately when performing the assignment, so you can skip the **calRaster(...)** step and just apply the calibration equation manually. 
 
 ```{r eval = F}
-
+assignmentModels <- isotopeAssignmentModel(ID = samples$ID, 
+                                           isotopeValue = samples$isotopeValue, 
+                                           SD_indv = cal.sd, 
+                                           precip_raster = cal.iso, 
+                                           precip_SD_raster = (cal.iso * 0)) # Add the error surface, which is just the mean surface with 0's
 ```
 
-3. Clustering based on surface similarity?
+## Clustering based on surface similarity?
+
+We didn't go over this functionality here, but **isocat** provides a great suite of tools to look at how spatial probability surfaces cluster based on spatial similarity. Check the isocat vignettes and paper here. While AssignR can be more user friendly, as many of the computation stuff happens behind the scenes, the functionality can be more rigid due to the specific object classes and necessary inputs (i.e., calibration data, error surface). Isocat is a great option to explore if you want to do some of the data manipulation yourself, or if you want to use the clustering methods. 
  
-```{r eval = F}
-
-```
  
-4. Multiple isotopes?
+## Multiple isotopes?
+
+Again, we didn't go over this functionality, but we can easily apply multiple isotopes/isoscapes in the same workflow. The second isoscape wouldn't be hydrogen, because that's likely our primary isoscape, so we don't need to follow the same calibration procedures. How we calibrate this isoscape and whether we need to calibrate it at all depends on the surface. This is beyond the scope of this workshop, so you need to determine this on an isotope-by-isotopes basis. 
+
+One issue here goes back to tip #1, because we often do not have an uncertainty surface for a second isoscape... But we can use the same logic as above. 
+
+The only thing to be careful of here is that the order of the sample isotopes in the sample dataframe matches the order of the isoscapes in the RasterStack. Otherwise, it's the same pdRaster(...) function. 
 
 ```{r eval = F}
+# We'll assume the first isotope is the d2H data from above
 
+isoscape.2 <- rast("Fakedata.tif") %>% 
+  projectRaster(crs = CRS(SRS_string = 'EPSG:4326')) %>%
+  mask(breeding.range) %>% # Mask to breeding range
+  crop(extent(breeding.range)) %>% # Crop to breeding range
+  raster::raster() # Convert back to raster object
+
+isoscape.2 <- stack(isoscape.2, isoscape.2 * 0) # Add zero-error surface
+
+isoscape.stack <- stack(isoscape.1, isoscape.2) # Stack two isotopes (and error surfaces) together
+names(isoscape.stack) <- c('iso1','iso1.sd','iso2','iso2.sd')
+
+p <- pdRaster(isoscape.stack, sample.df)
 ```
 
+***
 
 # - References
 
