@@ -117,7 +117,7 @@ plot(r$isoscape.rescale, xlab="Longitude", ylab="Latitude", col = custom.palette
 ## ASSIGNMENT
 
 # Assignment model
-origins <- pdRaster(r, data.frame(duck.d2h), genplot = F)
+origins <- pdRaster(r, data.frame(duck.d2h)[1:2], genplot = F)
 cellStats(origins[[10]], 'sum') # Posterior probabilities across a single raster layer should sum to 1
 
 plot(origins[[3]], col = custom.palette(8))
@@ -141,7 +141,7 @@ prior <- rasterize(prior, r$isoscape.rescale[[1]], field = "prob") %>% # rasteri
 plot(prior, col = custom.palette(16))
 
 # Assignment model, with a prior
-origins.prior <- pdRaster(r, data.frame(duck.d2h), prior = prior, genplot = F) # assignment with the prior
+origins.prior <- pdRaster(r, data.frame(duck.d2h)[1:2], prior = prior, genplot = F) # assignment with the prior
 
 # Compare the two assigments (with and without prior)
 par(mfrow = c(1,2))

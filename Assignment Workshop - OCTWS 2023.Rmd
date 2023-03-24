@@ -233,7 +233,7 @@ Where $f(y|\mu_c,\sigma_c)$ represents the probability that a given cell (**c**)
 
 
 ```{r assign}
-origins <- pdRaster(r, data.frame(duck.d2h), mask = as(breeding.range, 'Spatial'), genplot = F)
+origins <- pdRaster(r, data.frame(duck.d2h)[1:2], mask = as(breeding.range, 'Spatial'), genplot = F)
 ```
 
 Each resulting probability surfaces is normalized to sum to 1, which we can check:
@@ -287,7 +287,7 @@ plot(prior, col = custom.palette(16))
 Now we just need to input the prior into pdRaster.
 
 ```{r assign prior}
-origins.prior <- pdRaster(r, data.frame(duck.d2h), mask = as(breeding.range, 'Spatial'), prior = prior, genplot = F) # assignment with the prior
+origins.prior <- pdRaster(r, data.frame(duck.d2h)[1:2], mask = as(breeding.range, 'Spatial'), prior = prior, genplot = F) # assignment with the prior
 ```
 
 If we compare the two outputs, selecting the 12th duck this time, we can see the differences. Notice that while the probability is lower in Ontario, it's not 0. We gave a lower relative probability compared to Quebec and easern Canada, but the resulting probabilies are not 0. 
@@ -472,3 +472,9 @@ van Dijk JGB, Meissner W, Klaassen M (**2014**) Improving provenance studies in 
 van Wilgenburg SL, Hobson KA (**2011**) Combining stable-isotope (δD) and band recovery data to improve probabilistic assignment of migratory birds to origin. Ecological Applications 21:1340–1351. [Link](https://doi.org/10.1890/09-2047.1) 
 
 Vander Zanden HB, Wunder MB, Hobson KA, et al. (**2014**) Contrasting assignment of migratory organisms to geographic origins using long-term versus year-specific precipitation isotope maps. Methods Ecol Evol 5:891-900. [Link](doi:10.1111/2041-210X.12229)
+
+
+```{r}
+sessionInfo()
+```
+
