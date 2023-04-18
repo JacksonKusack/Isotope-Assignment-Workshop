@@ -31,6 +31,11 @@ custom.palette <- colorRampPalette(brewer.pal(9, "YlGnBu")) # Color palette
 duck.d2h <- read.csv(rdryad::dryad_files_download(1697805)[[1]]) 
 glimpse(duck.d2h) # Check data structure
 
+
+duck.d2h.id.lab <- paste("UWO",seq_len(41))
+duck.d2h.VSMOW <- rnorm(41, mean = -121.48, sd = 14.15)
+
+
 # Select juvenile black ducks harvested in Ontario
 duck.d2h <- filter(duck.d2h, age == "I") %>% 
   filter(state.prov == "ON") %>% 
@@ -38,7 +43,7 @@ duck.d2h <- filter(duck.d2h, age == "I") %>%
 
 # Create point object from the black duck data
 duck.points <- vect(duck.d2h, geom = c("long.dec", "lat.dec")) # create vect (points) object
-
+plot(duck.points)
 nrow(duck.d2h) # sample size
 
 
@@ -47,9 +52,11 @@ nrow(duck.d2h) # sample size
 
 northamerica <- ne_countries(continent = "North America", scale = 50, returnclass = "sf") %>% # Countries
   st_transform(st_crs('EPSG:4326')) # Project to WGS84
+plot(st_geometry(northamerica))
 
 northamerica.states <- ne_states(country =  c("Canada","United States of America"), returnclass = "sf") %>% # States and provinces
   st_transform(st_crs('EPSG:4326')) # Project to WGS84
+plot(st_geometry(northamerica.states))
 
 breeding.range <- st_read("/vsicurl/https://github.com/JacksonKusack/Assignment-Workshop/raw/main/Shapefiles/ABDU_baldassarre_lowdens.shp") %>% # Load a shapefile from GitHub
   st_transform(st_crs('EPSG:4326')) # Project to WGS84
@@ -80,6 +87,9 @@ plot(gsd, xlab="Longitude", ylab="Latitude", col = custom.palette(16))
 # Load known origin data
 data("knownOrig")
 
+str(knownOrig)
+
+
 knownOrig$sources[1:2] # list the dataset names and ids
 
 unique(knownOrig$samples$Taxon) # list the taxa
@@ -95,7 +105,7 @@ mean(cal.mall$data$d2H) # Untransformed mean
 mean(test.transformed$data$d2H) # Transformed mean
 
 # Calibrate the mean and sd values from our isoscape
-r <- calRaster(known = cal.mall, isoscape = gsd, interpMethod = 1, verboseLM = F, genplot = F) 
+r <- calRaster(known = cal.mall, isoscape = gsd, interpMethod = 1, verboseLM = T, genplot = T) 
 r.model <- r$lm.model # Extract model results
 summary(r.model) 
 
@@ -120,7 +130,7 @@ plot(r$isoscape.rescale, xlab="Longitude", ylab="Latitude", col = custom.palette
 origins <- pdRaster(r, data.frame(duck.d2h)[1:2], genplot = F)
 cellStats(origins[[10]], 'sum') # Posterior probabilities across a single raster layer should sum to 1
 
-plot(origins[[3]], col = custom.palette(8))
+plot(origins[[9]], col = custom.palette(8))
 plot(st_geometry(breeding.range), add = T)
 plot(st_geometry(northamerica), add = T)
 
@@ -134,6 +144,7 @@ prior$prob[prior$name == "Québec"] <- 0.4
 prior$prob[prior$name %in% c("New Brunswick","Nova Scotia","Prince Edward Island")] <- 0.2
 prior$prob[prior$name %in% c("Newfoundland and Labrador")] <- 0.3
 prior$prob[prior$admin == "United States of America"] <- 0
+plot(prior$prob)
 
 prior <- rasterize(prior, r$isoscape.rescale[[1]], field = "prob") %>% # rasterize the polygons to match the calibrated isoscape
   mask(breeding.range) # mask
